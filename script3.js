@@ -39,14 +39,14 @@ const validInstruments = new Set([
 ]);
 
 // Parse key signature and return Strudel scale name
-// E.g. "G" -> "G major", "Em" -> "E minor", "D" -> "D major"
+// E.g. "G" -> "G:major", "Em" -> "E:minor", "D" -> "D:major"
 function parseKeyToScaleName(keyStr) {
     // Default to C major
-    if (!keyStr || typeof keyStr !== 'string') return 'C major';
+    if (!keyStr || typeof keyStr !== 'string') return 'C:major';
     
     // Extract tonic from strings like "G", "Gm", "G major", "G minor", "Em"
     const tonicMatch = keyStr.match(/^([A-G][#b]?)/i);
-    if (!tonicMatch) return 'C major';
+    if (!tonicMatch) return 'C:major';
     
     let tonic = tonicMatch[1];
     // Capitalize first letter
@@ -56,7 +56,7 @@ function parseKeyToScaleName(keyStr) {
     const isMinor = /m|min|minor/i.test(keyStr);
     const mode = isMinor ? 'minor' : 'major';
     
-    return `${tonic} ${mode}`;
+    return `${tonic}:${mode}`;
 }
 
 // Convert an array of rhythmic durations (floats) to small proportional integers.
@@ -248,6 +248,15 @@ function abcToStrudel(abcText) {
 
         // Do not normalize bars further; scaling is deterministic. Only the pickup pad affects bar0.
 
+        // Remove first bar if it's just a full bar rest
+        if (bars.length > 0 && bars[0].notes.length === 1 && bars[0].notes[0] === '~') {
+            const firstBarDuration = bars[0].rhythm[0] || 0;
+            if (Math.abs(firstBarDuration - barTarget) < 0.5) {
+                console.debug(`abcToStrudel: removing first bar (full bar rest)`);
+                bars.shift();
+            }
+        }
+
         // Debug: print parsed bars (notes, raw durations, raw tokens)
         try {
             for (let i = 0; i < bars.length; i++) {
@@ -285,12 +294,12 @@ function abcToStrudel(abcText) {
             const ints = ub.rhythm; // already integer-scaled
             const rhythmStr = ints.join(' ');
             console.debug(`abcToStrudel: bar def ${ub.id} ints=`, ints, ' rawRhythm=', ub.rhythm);
-            code += `const ${ub.id} = n("${noteStr}").struct("${rhythmStr}").scale("${scaleName}");\n`;
+            code += `const ${ub.id} = n("${noteStr}").struct("${rhythmStr}");\n`;
         }
 
         // Build sequence referencing unique bar ids in order (deduped by name)
         const seq = bars.map(b => barMap.get(keyForBar(b)).id).join(', ');
-        code += `\ncat(${seq}).s("${instrument}");\n`;
+        code += `\ncat(${seq}).scale("${scaleName}").s("${instrument}");\n`;
 
         return code;
     } catch (err) {
