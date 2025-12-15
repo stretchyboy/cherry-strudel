@@ -43,20 +43,34 @@ const validInstruments = new Set([
 function parseKeyToScaleName(keyStr) {
     // Default to C major
     if (!keyStr || typeof keyStr !== 'string') return 'C:major';
-    
+
     // Extract tonic from strings like "G", "Gm", "G major", "G minor", "Em"
     const tonicMatch = keyStr.match(/^([A-G][#b]?)/i);
     if (!tonicMatch) return 'C:major';
-    
+
     let tonic = tonicMatch[1];
     // Capitalize first letter
     tonic = tonic.charAt(0).toUpperCase() + tonic.slice(1).toLowerCase();
-    
+
     // Check if minor (m, min, minor, or "Em" style)
     const isMinor = /m|min|minor/i.test(keyStr);
     const mode = isMinor ? 'minor' : 'major';
-    
+
     return `${tonic}:${mode}`;
+}
+
+// Get the abcjs pitch value (0-6) for a note letter (C=0, D=1, E=2, F=3, G=4, A=5, B=6)
+function getAbcjsPitchForLetter(letter) {
+    const pitchMap = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
+    return pitchMap[letter.toUpperCase()] || 0;
+}
+
+// Convert abcjs pitch to Strudel scale degree relative to the key's tonic
+// abcjs uses C=0, D=1, E=2, F=3, G=4, A=5, B=6, c=7 (next octave), etc.
+// Strudel with .scale() expects degrees relative to the tonic: 0=tonic, 1=second, etc.
+function abcjsPitchToScaleDegree(abcjsPitch, tonicAbcjsPitch) {
+    if (abcjsPitch === null || abcjsPitch === undefined) return null;
+    return abcjsPitch - tonicAbcjsPitch;
 }
 
 // Convert an array of rhythmic durations (floats) to small proportional integers.
@@ -94,17 +108,9 @@ function rhythmToIntegers(rhythm) {
 
 function abcToStrudel(abcText) {
     try {
-        // Build list of bar character indices from the raw ABC
-        const barIndices = [-1];
-        for (let i = 0; i < abcText.length; i++) {
-            if (abcText[i] === '|') barIndices.push(i);
-        }
-        barIndices.push(abcText.length);
-        const numBars = Math.max(1, barIndices.length - 1);
-
         // Parse using abcjs
         ABCJS.renderAbc("paper", abcText);
-        console.debug('abcToStrudel: ABCJS rendered to paper',abcText);
+        console.debug('abcToStrudel: ABCJS rendered to paper', abcText);
         const tune = ABCJS.parseOnly(abcText);
         if (!tune || !tune[0]) return "// Failed to parse ABC notation";
         const tuneData = tune[0];
@@ -142,118 +148,135 @@ function abcToStrudel(abcText) {
                 keyStr = kMatch[1].trim();
             }
         } catch (e) { /* ignore parse errors */ }
-        
-        const scaleName = parseKeyToScaleName(keyStr);
-        console.log("Key signature parsed:", keyStr, "Strudel scale:", scaleName);
-        
-        const scaleNote = lDen*meterDen;
-        const barTarget = Math.round(meterNum * lDen * (4 / meterDen));
-        console.log("barTarget", barTarget, "meterNum", meterNum, "meterDen", meterDen, "lDen", lDen, "scaleNote", scaleNote);
-        // Prepare empty bars (preserve order)
-        const bars = [];
-        for (let i = 0; i < numBars; i++) bars.push({ notes: [], rhythm: [] });
 
-        // Walk parsed elements and place each note/rest into the bar determined by its startChar
+        // Parse tempo (Q:) if present
+        let cpm = null;
+        try {
+            const qMatch = abcText.match(/Q:\s*([0-9]+)\/([0-9]+)\s*=\s*([0-9]+)/i);
+            if (qMatch) {
+                const noteNum = Number(qMatch[1]);
+                const noteDen = Number(qMatch[2]);
+                const bpm = Number(qMatch[3]);
+                
+                // Calculate how many of these notes fit in one bar
+                // notesPerBar = (meterNum/meterDen) / (noteNum/noteDen)
+                //             = (meterNum/meterDen) * (noteDen/noteNum)
+                const notesPerBar = (meterNum / meterDen) * (noteDen / noteNum);
+                cpm = Math.round(bpm / notesPerBar);
+                console.log(`Tempo parsed: Q:${noteNum}/${noteDen}=${bpm} -> ${notesPerBar} notes per bar -> ${cpm} cpm`);
+            }
+        } catch (e) { /* ignore tempo parse errors */ }
+
+        const scaleName = parseKeyToScaleName(keyStr);
+        // Get the tonic note letter and its abcjs pitch value
+        const tonicMatch = keyStr.match(/^([A-G])/i);
+        const tonicLetter = tonicMatch ? tonicMatch[1].toUpperCase() : 'C';
+        const tonicAbcjsPitch = getAbcjsPitchForLetter(tonicLetter);
+
+        console.log("Key signature parsed:", keyStr, "Strudel scale:", scaleName, "Tonic:", tonicLetter);
+
+        const scaleNote = lDen * meterDen; // Scale factor to convert durations to integers
+        const barTarget = 1; // For @ notation, target is just 1 measure worth of beats
+        console.log("barTarget", barTarget, "meterNum", meterNum, "meterDen", meterDen, "lDen", lDen, "scaleNote", scaleNote);
+
+        // Prepare empty bars (preserve order) - we'll split by bar elements
+        const bars = [{ notes: [], rhythm: [] }];
+        let currentBarIdx = 0;
+
+        // Walk parsed elements and split by bar markers
         for (const line of tuneData.lines || []) {
             if (!line.staff || !line.staff[0]) continue;
-            for (const voice of line.staff[0].voices || []) {
-                for (const el of voice) {
-                    console.log("abcToStrudel: processing element=", el);
-                    // Skip bar markers; we only care about notes and rests
-                    if (el.el_type === "bar") continue;
-                    
-                    // Determine bar index by el.startChar (fallback to first bar)
-                    let barIdx = 0;
-                    if (typeof el.startChar === 'number' && el.startChar >= 0) {
-                        for (let i = 0; i < numBars; i++) {
-                            if (el.startChar > barIndices[i] && el.startChar <= barIndices[i + 1]) {
-                                barIdx = i;
-                                break;
-                            }
-                        }
-                    }
+            // Only process the first voice to avoid duplicates in multi-voice tunes
+            const voices = line.staff[0].voices || [];
+            if (voices.length === 0) continue;
 
-                    // Rhythm: scale duration to integer units (scaleNote = L denominator)
-                    const durRaw = (el.duration !== undefined && el.duration !== null) ? el.duration : 0;
-                    const dur = durRaw * scaleNote;
-                    console.log("abcToStrudel: element duration", el.duration, durRaw, "scaled to", dur, "with scaleNote", scaleNote);
-
-                    if (el.rest) {
-                        bars[barIdx].notes.push('~');
-                        bars[barIdx].rhythm.push(dur);
-                        continue;
+            for (const el of voices[0]) {
+                //console.log("abcToStrudel: processing element=", el);
+                // Skip bar markers; they just tell us to move to the next bar
+                if (el.el_type === "bar") {
+                    currentBarIdx++;
+                    if (currentBarIdx >= bars.length) {
+                        bars.push({ notes: [], rhythm: [] });
                     }
-
-                    // Extract MIDI pitch directly
-                    let midi = null;
-                    
-                    if (el.pitches && el.pitches.length > 0) {
-                        const p = el.pitches[0];
-                        midi = (p && (p.midi !== undefined)) ? p.midi : (p && p.pitch !== undefined ? p.pitch : null);
-                    } else if (el.pitch !== undefined) {
-                        midi = el.pitch;
-                    }
-
-                    if (midi !== null) {
-                        bars[barIdx].notes.push(String(midi));
-                    } else {
-                        bars[barIdx].notes.push('~');
-                    }
-                    bars[barIdx].rhythm.push(dur);
+                    continue;
                 }
+
+                // Ensure we have a current bar
+                if (currentBarIdx >= bars.length) {
+                    bars.push({ notes: [], rhythm: [] });
+                }
+
+
+
+                // Scale duration to integer for @ notation
+                const durRaw = (el.duration !== undefined && el.duration !== null) ? el.duration : 1;
+                const dur = Math.round(durRaw * scaleNote);
+
+                if (el.rest) {
+                    bars[currentBarIdx].notes.push('~');
+                    bars[currentBarIdx].rhythm.push(dur);
+                    continue;
+                }
+
+                // Extract abcjs pitch and convert to Strudel scale degree
+                let abcjsPitch = null;
+
+                if (el.pitches && el.pitches.length > 0) {
+                    abcjsPitch = el.pitches[0].pitch;
+                } else if (el.pitch !== undefined) {
+                    abcjsPitch = el.pitch;
+                }
+
+                if (abcjsPitch !== null) {
+                    const scaleDegree = abcjsPitchToScaleDegree(abcjsPitch, tonicAbcjsPitch);
+                    bars[currentBarIdx].notes.push(String(scaleDegree));
+                } else {
+                    bars[currentBarIdx].notes.push('~');
+                }
+                bars[currentBarIdx].rhythm.push(dur);
             }
         }
+
 
         // If some bars are empty, treat them as a single rest
         for (const b of bars) {
             if (b.notes.length === 0) {
                 b.notes.push('~');
-                b.rhythm.push(barTarget);
+                b.rhythm.push(1);
             }
         }
 
-        /*
-        // Merge trailing implicit rests (where the raw token wasn't an explicit 'z')
-        // into the previous note's duration so long notes aren't split as note+rest.
-        for (const b of bars) {
-            if (b.notes.length >= 2) {
-                const lastIdx = b.notes.length - 1;
-                if (b.notes[lastIdx] === '~') {
-                    const raw = (b.raws[lastIdx] || '').trim();
-                    // if raw does NOT contain an explicit 'z' rest, treat this '~' as implicit filler
-                    if (raw.indexOf('z') === -1) {
-                        // merge into previous
-                        b.rhythm[lastIdx - 1] = (b.rhythm[lastIdx - 1] || 0) + (b.rhythm[lastIdx] || 0);
-                        b.notes.splice(lastIdx, 1);
-                        b.rhythm.splice(lastIdx, 1);
-                        b.raws.splice(lastIdx, 1);
-                    }
-                }
-            }
-        }
-            */
-
-        // Pad only the first bar if it is shorter than the target (pickup measure)
-        for (let idx = 0; idx < bars.length; idx++) {
-            const b = bars[idx];
-            const barSum = (b.rhythm || []).reduce((s, v) => s + (v || 0), 0);
-            const deficit = barTarget - barSum;
-            if (idx === 0 && deficit > 0) {
-                b.notes.unshift('~');
-                b.rhythm.unshift(deficit);
-                b.raws.unshift('');
-                console.debug(`abcToStrudel: padded pickup bar with leading rest of duration ${deficit}`, b);
-            }
-        }
-
-        // Do not normalize bars further; scaling is deterministic. Only the pickup pad affects bar0.
-
-        // Remove first bar if it's just a full bar rest
-        if (bars.length > 0 && bars[0].notes.length === 1 && bars[0].notes[0] === '~') {
-            const firstBarDuration = bars[0].rhythm[0] || 0;
-            if (Math.abs(firstBarDuration - barTarget) < 0.5) {
-                console.debug(`abcToStrudel: removing first bar (full bar rest)`);
+        // Remove leading bars that are all rests
+        while (bars.length > 0) {
+            const firstBar = bars[0];
+            const allRests = firstBar.notes.every(note => note === '~');
+            if (allRests) {
+                console.debug(`abcToStrudel: removing leading bar of all rests`);
                 bars.shift();
+            } else {
+                break;
+            }
+        }
+        
+        // Also trim leading rests from the first remaining bar
+        if (bars.length > 0) {
+            const firstBar = bars[0];
+            while (firstBar.notes.length > 0 && firstBar.notes[0] === '~') {
+                console.debug(`abcToStrudel: removing leading rest from first bar`);
+                firstBar.notes.shift();
+                firstBar.rhythm.shift();
+            }
+        }
+
+        // Remove trailing bars that are all rests
+        while (bars.length > 0) {
+            const lastBar = bars[bars.length - 1];
+            const allRests = lastBar.notes.every(note => note === '~');
+            if (allRests) {
+                console.debug(`abcToStrudel: removing trailing bar of all rests`);
+                bars.pop();
+            } else {
+                break;
             }
         }
 
@@ -262,7 +285,7 @@ function abcToStrudel(abcText) {
             for (let i = 0; i < bars.length; i++) {
                 const b = bars[i];
                 // avoid overly verbose output but show key arrays
-                console.debug(`abcToStrudel: bar[${i}] notes=`, b.notes, ' rhythm=', b.rhythm, ' raws=', b.raws);
+                console.debug(`abcToStrudel: bar[${i}] notes=`, b.notes, ' rhythm=', b.rhythm);
             }
         } catch (e) {
             // ignore debug failures in older consoles
@@ -285,21 +308,29 @@ function abcToStrudel(abcText) {
             }
         }
 
-        // Generate Strudel code
-        // Use .n() for MIDI numbers and .scale() to apply the named scale
-        let code = `setcpm(45)\n\n`;
-        
+        // Generate Strudel code using @ notation for durations
+        let code = ``;
+        if (cpm !== null) {
+            code += `setcpm(${cpm})\n\n`;
+        } else {
+            code += `setcpm(45)\n\n`;
+        }
+
         for (const ub of uniqueBars) {
-            const noteStr = ub.notes.join(' ');
-            const ints = ub.rhythm; // already integer-scaled
-            const rhythmStr = ints.join(' ');
-            console.debug(`abcToStrudel: bar def ${ub.id} ints=`, ints, ' rawRhythm=', ub.rhythm);
-            code += `const ${ub.id} = n("${noteStr}").struct("${rhythmStr}");\n`;
+            // Build note@duration pairs
+            const notesWithDurations = [];
+            for (let i = 0; i < ub.notes.length; i++) {
+                const note = ub.notes[i];
+                const duration = ub.rhythm[i];
+                notesWithDurations.push(`${note}@${duration}`);
+            }
+            const noteStr = notesWithDurations.join(' ');
+            code += `const ${ub.id} = n("${noteStr}");\n`;
         }
 
         // Build sequence referencing unique bar ids in order (deduped by name)
         const seq = bars.map(b => barMap.get(keyForBar(b)).id).join(', ');
-        code += `\ncat(${seq}).scale("${scaleName}").s("${instrument}");\n`;
+        code += `\ncat(${seq})\n.scale("${scaleName}")\n.s("${instrument}");\n`;
 
         return code;
     } catch (err) {
@@ -308,24 +339,24 @@ function abcToStrudel(abcText) {
     }
 }
 // Handle convert button click
-        document.addEventListener('DOMContentLoaded', function() {
-            const convertBtn = document.getElementById('convert');
-            const abcTextarea = document.getElementById('abc');
-            
-            if (convertBtn) {
-                convertBtn.addEventListener('click', function() {
-                    const abcText = abcTextarea.value;
-                    const strudelCode = abcToStrudel(abcText);
-                    
-                    // Find the strudel-editor element and update it
-                    const editor = document.querySelector('strudel-editor');
-                    if (editor) {
-                        editor.setAttribute('code', strudelCode);
-                        // Trigger re-evaluation if the editor supports it
-                        if (editor.requestUpdate) {
-                            editor.requestUpdate();
-                        }
-                    }
-                });
+document.addEventListener('DOMContentLoaded', function () {
+    const convertBtn = document.getElementById('convert');
+    const abcTextarea = document.getElementById('abc');
+
+    if (convertBtn) {
+        convertBtn.addEventListener('click', function () {
+            const abcText = abcTextarea.value;
+            const strudelCode = abcToStrudel(abcText);
+
+            // Find the strudel-editor element and update it
+            const editor = document.querySelector('strudel-editor');
+            if (editor) {
+                editor.setAttribute('code', strudelCode);
+                // Trigger re-evaluation if the editor supports it
+                if (editor.requestUpdate) {
+                    editor.requestUpdate();
+                }
             }
         });
+    }
+});
