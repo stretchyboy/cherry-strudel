@@ -1,45 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cherry Strudel</title>
-        
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cherry Strudel</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      align-items: center;
+    }
+
+    .controls select {
+      padding: 6px 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
 </head>
+
 <body>
 
-    <script src="https://unpkg.com/@strudel/repl@latest"></script>
+  <script src="https://unpkg.com/@strudel/repl@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.5.2/dist/abcjs-basic-min.js"></script>
+  <script src="script.js"></script>
 
-        <script>
+  <h1>ABC → Strudel</h1>
+  <p>Paste a monophonic ABC melody (one voice). Each bar becomes one Strudel cycle.</p>
 
+  <div class="controls">
+    <label for="tune-select">Load from file:</label>
+    <select id="tune-select">
+      <option value="">-- Select a tune --</option>
+    </select>
+  </div>
 
-x = function(ar){
-  return seq(ar.map((e) => e.toString()))
-}
+  <div class="row">
+    <textarea id="abc">
 
-function to_base(number, base) {
-    let digit = [];
+X: 25
+T: Jingle Bells
+P: piffero primo c0050
+O: James Pierpont
+%R: march
+F: http://ancients.sudburymuster.org/mus/col/pdf/carolsF.pdf
+Z: 2020 John Chambers <jc:trillian.mit.edu>
+M: 4/4
+L: 1/4
+K: G
+% - - - - - - - - - -
+[|\
+DB AG | D3 D/D/ | DB AG | E4 |\
+Ec BA | F3 F | dd cA | B3 D ||\
+DB AG | D3 D/D/ | DB AG |
+E3 E |\
+Ec BA | dd dd | ed cA | G3 z |[|\
+BB B2 | BB B2 | Bd GA | B4 |\
+cc cc | cB BB/B/ |
+BA AB | A>z d2 ||\
+BB B2 | BB B2 | Bd GA | B4 |\
+cc cc | cB BB/B/ | dd cA | G3 z |]
+%% - - - - - - - - - -
+        </textarea>
+    <button id="convert">Convert to Strudel</button>
+  </div>
 
-    while (number > 0) {
-        digit.unshift(number % base);
-        number = Math.floor(number / base);
-    }
-    return x(digit);
-}
+  <strudel-editor></strudel-editor>
+  <div id="paper"></div>
 
+  <script>
+    // Load Christmas_Carols.abc and populate the dropdown
+    fetch('Christmas_Carols.abc')
+      .then(response => response.text())
+      .then(abcText => {
+        // Parse tunes: find X: headers and corresponding T: titles
+        const tunes = [];
+        const lines = abcText.split('\n');
+        let currentX = null;
+        let currentT = null;
+        let tuneStart = 0;
 
-        </script>
-<strudel-editor>
-  <!--
-setcps(1)
-n("<0 1 2 3 4>*8").scale('G4 minor')
-.s("gm_lead_6_voice")
-.clip(sine.range(.2,.8).slow(8))
-.jux(rev)
-.room(2)
-.sometimes(add(note("12")))
-.lpf(perlin.range(200,20000).slow(4))
--->
-</strudel-editor>
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line.startsWith('X:')) {
+            // if we have a previous tune, save it
+            if (currentX !== null) {
+              tunes.push({
+                x: currentX,
+                title: currentT || `Tune ${currentX}`,
+                startLine: tuneStart,
+                endLine: i
+              });
+            }
+            currentX = line.substring(2).trim();
+            tuneStart = i;
+            currentT = null;
+          } else if (line.startsWith('T:') && currentX !== null) {
+            currentT = line.substring(2).trim();
+          }
+        }
+        // save last tune
+        if (currentX !== null) {
+          tunes.push({
+            x: currentX,
+            title: currentT || `Tune ${currentX}`,
+            startLine: tuneStart,
+            endLine: lines.length
+          });
+        }
+
+        // Populate dropdown
+        const select = document.getElementById('tune-select');
+        tunes.forEach(tune => {
+          const option = document.createElement('option');
+          option.value = tune.startLine + ',' + tune.endLine;
+          option.textContent = `${tune.x}. ${tune.title}`;
+          select.appendChild(option);
+        });
+
+        // Handle dropdown selection
+        select.addEventListener('change', function () {
+          if (!this.value) return;
+          const [startStr, endStr] = this.value.split(',');
+          const start = parseInt(startStr);
+          const end = parseInt(endStr);
+          const tuneText = lines.slice(start, end).join('\n');
+          document.getElementById('abc').value = tuneText;
+        });
+
+        console.log(`Loaded ${tunes.length} tunes from Christmas_Carols.abc`);
+      })
+      .catch(err => console.error('Error loading Christmas_Carols.abc:', err));
+  </script>
 </body>
+
 </html>
