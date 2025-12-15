@@ -1,0 +1,118 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ABC → Strudel converter</title>
+  <!-- abcjs: parse ABC reliably -->
+  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.5.2/dist/abcjs-basic.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; }
+    textarea { width: 100%; height: 220px; }
+    pre { background: #111; color: #0f0; padding: 1rem; overflow: auto; }
+    .row { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  </style>
+</head>
+<body>
+  <h1>ABC → Strudel</h1>
+  <p>Paste a monophonic ABC melody (one voice). Each bar becomes one Strudel cycle.</p>
+
+  <div class="row">
+    <textarea id="abc">
+X:1
+T:Jingle Bells (chorus)
+M:4/4
+L:1/8
+K:G
+B B B B | B B B B | B d G A B2 | c c c c c B B | B B A A B A G2 |
+    </textarea>
+    <button id="convert">Convert to Strudel</button>
+  </div>
+
+  <h3>Strudel output:</h3>
+  <pre id="out"></pre>
+
+  <script>
+    // Convert MIDI to Strudel letter+octave (C4=60 -> "c4")
+    function midiToStrudel(m) {
+      const names = ['c','c#','d','d#','e','f','f#','g','g#','a','a#','b'];
+      const name = names[m % 12];
+      const octave = Math.floor(m / 12) - 1;
+      return name + octave;
+    }
+
+    // Map ABC duration (in whole-notes) -> "eighth units" if L:1/8,
+    // else derive from L: header (base length).
+    function toUnits(note, baseLenFrac) {
+      // baseLenFrac: e.g., for L:1/8 => 1/8 = 0.125 of a whole note
+      // A note with length 'lenFrac' (fraction of a whole) has units = lenFrac / baseLenFrac
+      const lenFrac = note.duration || note.len || baseLenFrac; // abcjs exposes duration/len
+      const units = Math.round(lenFrac / baseLenFrac);          // round to nearest unit
+      return Math.max(units, 1);
+    }
+
+    function convertABCtoStrudel(abcText) {
+      const tunes = ABCJS.parseOnly(abcText);
+      if (!tunes || !tunes[0]) throw new Error('ABC parse failed—check syntax.');
+      const tune = tunes[0];
+
+      // Determine base length from L: header (e.g., 1/8)
+      const base = (tune.metaText && tune.metaText.duration) ?
+        tune.metaText.duration : 1/8; // fallback
+      const baseLenFrac = base;        // fraction of a whole note
+
+      const bars = [];
+      tune.lines.forEach(line => {
+        (line.staff || []).forEach(staff => {
+          const voice = (staff.voices && staff.voices[0]) ? staff.voices[0] : null;
+          if (!voice) return;
+
+          let curNotes = [], curStruct = [];
+
+          voice.forEach(el => {
+            if (el.type === 'bar') {
+              if (curNotes.length) { bars.push({ notes: curNotes, struct: curStruct }); }
+              curNotes = []; curStruct = [];
+            } else if (el.el_type === 'note') {
+              if (el.rest) {
+                curNotes.push('~');
+                curStruct.push(toUnits(el, baseLenFrac));
+              } else {
+                const midi = el.pitches && el.pitches[0] ? el.pitches[0].midi : null;
+                let token = midi ? midiToStrudel(midi) : (el.pitches[0].name || 'e'); // fallback note name
+                // 👉 If there is NO octave digit, assume octave 5 (your preference)
+                if (!/\d/.test(token)) token = token + '5';
+                curNotes.push(token);
+                curStruct.push(toUnits(el, baseLenFrac));
+              }
+            }
+          });
+
+          if (curNotes.length) { bars.push({ notes: curNotes, struct: curStruct }); }
+        });
+      });
+
+      // Emit Strudel: one bar per cycle, concatenated with cat(...), and playable with $:
+      const barDecls = bars.map((b, i) => {
+        const notes = b.notes.join(' ');
+        const dur   = b.struct.join(' ');
+        return `const bar${i+1} = note("${notes}").struct("${dur}").s("gm_glockenspiel").gain(0.9).clip(0.95)`;
+      }).join('\n');
+
+      const play = `$: cat(${bars.map((_,i)=>`bar${i+1}`).join(', ')})`;
+
+      return `${barDecls}\n\n${play}\n`;
+    }
+
+    document.getElementById('convert').addEventListener('click', () => {
+      try {
+        const abc = document.getElementById('abc').value;
+        const strudelCode = convertABCtoStrudel(abc);
+        document.getElementById('out').textContent = strudelCode;
+      } catch (e) {
+        document.getElementById('out').textContent = '// Error: ' + e.message;
+      }
+    });
+  </script>
+</body>
+</html>
