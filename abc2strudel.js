@@ -317,13 +317,13 @@ function abcToStrudel(abcText) {
         // Generate Strudel code using @ notation for durations
         let code = ``;
         if (cpm !== null) {
-            code += `setcpm(${cpm})\n\n`;
+            code += `setcpm(${cpm})\n`;
         } else {
-            code += `setcpm(45)\n\n`;
+            code += `setcpm(45)\n`;
         }
         const barsName = `t${tuneNum}`;
         // Build bars array with unique bar patterns
-        code += `const ${barsName} = [\n`;
+        const barDefs = [];
         for (const ub of uniqueBars) {
             // Build note@duration pairs
             const notesWithDurations = [];
@@ -333,9 +333,32 @@ function abcToStrudel(abcText) {
                 notesWithDurations.push(`${note}@${duration}`);
             }
             const noteStr = notesWithDurations.join(' ');
-            code += `  n("${noteStr}"),\n`;
+            barDefs.push(`n("${noteStr}")`);
         }
-        code += `];\n\n`;
+        
+        // Pack barDefs into lines under 80 chars
+        code += `const ${barsName} = [`;
+        let currentLine = '';
+        for (let i = 0; i < barDefs.length; i++) {
+            const bar = barDefs[i];
+            const sep = i < barDefs.length - 1 ? ', ' : '';
+            const testLine = currentLine ? `${currentLine}${bar}${sep}` : bar + sep;
+            
+            if (testLine.length + `const ${barsName} = [`.length <= 80 && currentLine) {
+                currentLine = testLine;
+            } else {
+                if (currentLine) {
+                    code += currentLine + '\n  ';
+                    currentLine = bar + sep;
+                } else {
+                    currentLine = bar + sep;
+                }
+            }
+        }
+        if (currentLine) {
+            code += currentLine;
+        }
+        code += `];\n`;
 
         // Build sequence of indices referencing bars array
         const indices = bars.map(b => {
@@ -347,7 +370,12 @@ function abcToStrudel(abcText) {
             return `${barsName}[${uk}]`;
         }).join(', ');
         
-        code += `cat(${indices})\n.scale("${scaleName}")\n.s("${instrument}");\n`;
+        const catLine = `cat(${indices}).scale("${scaleName}").s("${instrument}");`;
+        if (catLine.length <= 80) {
+            code += catLine + '\n';
+        } else {
+            code += `cat(${indices})\n  .scale("${scaleName}").s("${instrument}")._pianoroll()\n`;
+        }
 
         return code;
     } catch (err) {
