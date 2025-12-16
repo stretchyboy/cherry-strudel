@@ -124,6 +124,15 @@ function abcToStrudel(abcText) {
             if (validInstruments.has(instrumentName)) instrument = instrumentName;
         }
 
+        // Parse tune number from X: field
+        let tuneNum = 1;
+        try {
+            const xMatch = abcText.match(/X:\s*([0-9]+)/i);
+            if (xMatch) {
+                tuneNum = Number(xMatch[1]) || 1;
+            }
+        } catch (e) { /* ignore parse errors */ }
+
         // Meter + unit length (ABCJS durations are expressed in notional beats based on L:)
         // We scale durations by the L: denominator, and set barTarget accordingly:
         // barTarget = meterNum * lDen * (4 / meterDen)
@@ -163,7 +172,7 @@ function abcToStrudel(abcText) {
                 //             = (meterNum/meterDen) * (noteDen/noteNum)
                 const notesPerBar = (meterNum / meterDen) * (noteDen / noteNum);
                 cpm = Math.round(bpm / notesPerBar);
-                console.log(`Tempo parsed: Q:${noteNum}/${noteDen}=${bpm} -> ${notesPerBar} notes per bar -> ${cpm} cpm`);
+                //console.log(`Tempo parsed: Q:${noteNum}/${noteDen}=${bpm} -> ${notesPerBar} notes per bar -> ${cpm} cpm`);
             }
         } catch (e) { /* ignore tempo parse errors */ }
 
@@ -173,11 +182,11 @@ function abcToStrudel(abcText) {
         const tonicLetter = tonicMatch ? tonicMatch[1].toUpperCase() : 'C';
         const tonicAbcjsPitch = getAbcjsPitchForLetter(tonicLetter);
 
-        console.log("Key signature parsed:", keyStr, "Strudel scale:", scaleName, "Tonic:", tonicLetter);
+        //console.log("Key signature parsed:", keyStr, "Strudel scale:", scaleName, "Tonic:", tonicLetter);
 
         const scaleNote = lDen * meterDen; // Scale factor to convert durations to integers
         const barTarget = 1; // For @ notation, target is just 1 measure worth of beats
-        console.log("barTarget", barTarget, "meterNum", meterNum, "meterDen", meterDen, "lDen", lDen, "scaleNote", scaleNote);
+        //console.log("barTarget", barTarget, "meterNum", meterNum, "meterDen", meterDen, "lDen", lDen, "scaleNote", scaleNote);
 
         // Prepare empty bars (preserve order) - we'll split by bar elements
         const bars = [{ notes: [], rhythm: [] }];
@@ -205,8 +214,6 @@ function abcToStrudel(abcText) {
                 if (currentBarIdx >= bars.length) {
                     bars.push({ notes: [], rhythm: [] });
                 }
-
-
 
                 // Scale duration to integer for @ notation
                 const durRaw = (el.duration !== undefined && el.duration !== null) ? el.duration : 1;
@@ -236,7 +243,6 @@ function abcToStrudel(abcText) {
                 bars[currentBarIdx].rhythm.push(dur);
             }
         }
-
 
         // If some bars are empty, treat them as a single rest
         for (const b of bars) {
@@ -315,7 +321,9 @@ function abcToStrudel(abcText) {
         } else {
             code += `setcpm(45)\n\n`;
         }
-
+        const barsName = `t${tuneNum}`;
+        // Build bars array with unique bar patterns
+        code += `const ${barsName} = [\n`;
         for (const ub of uniqueBars) {
             // Build note@duration pairs
             const notesWithDurations = [];
@@ -325,12 +333,21 @@ function abcToStrudel(abcText) {
                 notesWithDurations.push(`${note}@${duration}`);
             }
             const noteStr = notesWithDurations.join(' ');
-            code += `const ${ub.id} = n("${noteStr}");\n`;
+            code += `  n("${noteStr}"),\n`;
         }
+        code += `];\n\n`;
 
-        // Build sequence referencing unique bar ids in order (deduped by name)
-        const seq = bars.map(b => barMap.get(keyForBar(b)).id).join(', ');
-        code += `\ncat(${seq})\n.scale("${scaleName}")\n.s("${instrument}");\n`;
+        // Build sequence of indices referencing bars array
+        const indices = bars.map(b => {
+            const k = keyForBar(b);
+            const uk = uniqueBars.findIndex(ub => {
+                const ubKey = ub.notes.join(',') + '|' + ub.rhythm.join(',');
+                return ubKey === k;
+            });
+            return `${barsName}[${uk}]`;
+        }).join(', ');
+        
+        code += `cat(${indices})\n.scale("${scaleName}")\n.s("${instrument}");\n`;
 
         return code;
     } catch (err) {
