@@ -374,7 +374,7 @@ function abcToStrudel(abcText) {
         if (catLine.length <= 80) {
             code += catLine + '\n';
         } else {
-            code += `cat(${indices})\n  .scale("${scaleName}").s("${instrument}")._pianoroll()\n`;
+            code += `$: cat(${indices})\n  .scale("${scaleName}").s("${instrument}")._pianoroll()\n`;
         }
 
         return code;
