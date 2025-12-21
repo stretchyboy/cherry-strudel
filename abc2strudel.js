@@ -188,6 +188,10 @@ function abcToStrudel(abcText) {
         const barTarget = 1; // For @ notation, target is just 1 measure worth of beats
         //console.log("barTarget", barTarget, "meterNum", meterNum, "meterDen", meterDen, "lDen", lDen, "scaleNote", scaleNote);
 
+        // Check if ABC contains polyphonic notation (& symbol)
+        const isPolyphonic = abcText.includes('&');
+        console.debug(`isPolyphonic = ${isPolyphonic}`);
+
         // Prepare empty bars (preserve order) - we'll split by bar elements
         const bars = [{ notes: [], rhythm: [] }];
         let currentBarIdx = 0;
@@ -195,11 +199,107 @@ function abcToStrudel(abcText) {
         // Walk parsed elements and split by bar markers
         for (const line of tuneData.lines || []) {
             if (!line.staff || !line.staff[0]) continue;
-            // Only process the first voice to avoid duplicates in multi-voice tunes
             const voices = line.staff[0].voices || [];
             if (voices.length === 0) continue;
 
-            for (const el of voices[0]) {
+            // If not polyphonic, only process the first voice
+            // If polyphonic, process all voices and merge simultaneous notes into chords
+            const voicesToProcess = isPolyphonic ? voices : [voices[0]];
+            
+            // For polyphonic music, build a timeline of events from all voices
+            if (isPolyphonic && voices.length > 1) {
+                // Build timeline: { time, barIdx, notes[], duration }
+                const timeline = [];
+                
+                for (let voiceIdx = 0; voiceIdx < voices.length; voiceIdx++) {
+                    const voice = voices[voiceIdx];
+                    let time = 0;
+                    let barIdx = 0;
+                    
+                    for (const el of voice) {
+                        if (el.el_type === "bar") {
+                            barIdx++;
+                            time = 0;
+                            continue;
+                        }
+
+                        const durRaw = (el.duration !== undefined && el.duration !== null) ? el.duration : 1;
+                        const dur = Math.round(durRaw * scaleNote);
+
+                        let note = '~';
+                        if (!el.rest) {
+                            let abcjsPitch = null;
+                            if (el.pitches && el.pitches.length > 0) {
+                                abcjsPitch = el.pitches[0].pitch;
+                            } else if (el.pitch !== undefined) {
+                                abcjsPitch = el.pitch;
+                            }
+                            if (abcjsPitch !== null) {
+                                note = String(abcjsPitchToScaleDegree(abcjsPitch, tonicAbcjsPitch));
+                            }
+                        }
+
+                        timeline.push({ time, barIdx, note, duration: dur });
+                        time += durRaw;
+                    }
+                }
+
+                // Sort by barIdx, then time
+                timeline.sort((a, b) => {
+                    if (a.barIdx !== b.barIdx) return a.barIdx - b.barIdx;
+                    return a.time - b.time;
+                });
+
+                // Group simultaneous notes into chords
+                let i = 0;
+                while (i < timeline.length) {
+                    const current = timeline[i];
+                    const barIdx = current.barIdx;
+                    
+                    // Ensure we have enough bars
+                    while (barIdx >= bars.length) {
+                        bars.push({ notes: [], rhythm: [] });
+                    }
+
+                    // Gather all notes at the same time in the same bar
+                    const simultaneous = [current];
+                    let j = i + 1;
+                    while (j < timeline.length && 
+                           timeline[j].barIdx === barIdx && 
+                           Math.abs(timeline[j].time - current.time) < 0.001) {
+                        simultaneous.push(timeline[j]);
+                        j++;
+                    }
+
+                    // If all notes have the same duration, combine into a chord
+                    const durations = new Set(simultaneous.map(e => e.duration));
+                    if (durations.size === 1 && simultaneous.length > 1) {
+                        // Remove rests from the chord
+                        const chordNotes = simultaneous.map(e => e.note).filter(n => n !== '~');
+                        if (chordNotes.length > 0) {
+                            bars[barIdx].notes.push('[' + chordNotes.join(',') + ']');
+                            bars[barIdx].rhythm.push(current.duration);
+                        } else {
+                            bars[barIdx].notes.push('~');
+                            bars[barIdx].rhythm.push(current.duration);
+                        }
+                    } else {
+                        // Different durations or single note - add individually
+                        for (const event of simultaneous) {
+                            bars[barIdx].notes.push(event.note);
+                            bars[barIdx].rhythm.push(event.duration);
+                        }
+                    }
+
+                    i = j;
+                }
+
+                // Skip the normal single-voice processing
+                continue;
+            }
+
+            // Single-voice processing (original code)
+            for (const el of voicesToProcess[0]) {
                 //console.log("abcToStrudel: processing element=", el);
                 // Skip bar markers; they just tell us to move to the next bar
                 if (el.el_type === "bar") {
@@ -252,7 +352,9 @@ function abcToStrudel(abcText) {
             }
         }
 
-        // Remove leading bars that are all rests
+        const fullBarDuration = meterNum * scaleNote / meterDen;
+        
+        // Remove leading bars that are entirely rests
         while (bars.length > 0) {
             const firstBar = bars[0];
             const allRests = firstBar.notes.every(note => note === '~');
@@ -264,25 +366,74 @@ function abcToStrudel(abcText) {
             }
         }
         
-        // Also trim leading rests from the first remaining bar
+        // Pad the first bar with a leading rest if it's incomplete (pickup measure)
         if (bars.length > 0) {
             const firstBar = bars[0];
-            while (firstBar.notes.length > 0 && firstBar.notes[0] === '~') {
-                console.debug(`abcToStrudel: removing leading rest from first bar`);
-                firstBar.notes.shift();
-                firstBar.rhythm.shift();
+            const currentDuration = firstBar.rhythm.reduce((sum, d) => sum + d, 0);
+            if (currentDuration < fullBarDuration) {
+                const restDuration = fullBarDuration - currentDuration;
+                firstBar.notes.unshift('~');
+                firstBar.rhythm.unshift(restDuration);
+                console.debug(`abcToStrudel: added leading rest @${restDuration} to first bar (pickup measure)`);
             }
         }
 
-        // Remove trailing bars that are all rests
-        while (bars.length > 0) {
-            const lastBar = bars[bars.length - 1];
-            const allRests = lastBar.notes.every(note => note === '~');
-            if (allRests) {
-                console.debug(`abcToStrudel: removing trailing bar of all rests`);
-                bars.pop();
-            } else {
-                break;
+        // Merge consecutive partial bars that together make a full bar (for section boundaries)
+        // Skip the first bar (already padded as pickup) and work through the rest
+        let i = 1;
+        while (i < bars.length) {
+            const bar = bars[i];
+            const barDuration = bar.rhythm.reduce((sum, d) => sum + d, 0);
+            
+            // If this bar is incomplete and not the last bar
+            if (barDuration < fullBarDuration && i < bars.length - 1) {
+                const nextBar = bars[i + 1];
+                const nextDuration = nextBar.rhythm.reduce((sum, d) => sum + d, 0);
+                
+                // If current + next equals a full bar, merge them
+                if (barDuration + nextDuration === fullBarDuration) {
+                    bar.notes.push(...nextBar.notes);
+                    bar.rhythm.push(...nextBar.rhythm);
+                    bars.splice(i + 1, 1);
+                    console.debug(`abcToStrudel: merged bars ${i} and ${i+1} (${barDuration} + ${nextDuration} = ${fullBarDuration})`);
+                    // Don't increment i, check if we can merge more
+                    continue;
+                }
+            }
+            i++;
+        }
+
+        // Pad the last bar with a trailing rest if incomplete (for proper looping)
+        // Work backwards to handle the last sounding bar, not empty trailing bars
+        for (let i = bars.length - 1; i >= 0; i--) {
+            const bar = bars[i];
+            const currentDuration = bar.rhythm.reduce((sum, d) => sum + d, 0);
+            
+            // Skip bars that are already complete
+            if (currentDuration >= fullBarDuration) continue;
+            
+            // Check if this is essentially an empty bar (only has a tiny rest we added)
+            const isEmptyBar = bar.notes.length === 1 && bar.notes[0] === '~' && bar.rhythm[0] <= 1;
+            
+            if (isEmptyBar && i > 0) {
+                // Remove this empty bar and pad the previous bar instead
+                bars.splice(i, 1);
+                const prevBar = bars[i - 1];
+                const prevDuration = prevBar.rhythm.reduce((sum, d) => sum + d, 0);
+                if (prevDuration < fullBarDuration) {
+                    const restDuration = fullBarDuration - prevDuration;
+                    prevBar.notes.push('~');
+                    prevBar.rhythm.push(restDuration);
+                    console.debug(`abcToStrudel: removed empty bar ${i}, added rest @${restDuration} to bar ${i-1}`);
+                }
+                break; // Only fix the last incomplete bar
+            } else if (!isEmptyBar) {
+                // This is a real bar with notes - pad it only if it's the last bar
+                const restDuration = fullBarDuration - currentDuration;
+                bar.notes.push('~');
+                bar.rhythm.push(restDuration);
+                console.debug(`abcToStrudel: added rest @${restDuration} to pad last bar (${currentDuration} -> ${fullBarDuration})`);
+                break; // Only fix the last incomplete bar
             }
         }
 
