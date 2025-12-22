@@ -241,6 +241,15 @@ function abcToStrudel(abcText) {
                 for (const el of voice) {
                 // Skip bar markers; they just tell us to move to the next bar
                 if (el.el_type === "bar") {
+                    // Store bar marker info for section detection
+                    if (!bars[currentBarIdx]) {
+                        bars[currentBarIdx] = { notes: [], rhythm: [] };
+                    }
+                    if (el.startEnding || el.endEnding || el.type) {
+                        bars[currentBarIdx].barType = el.type;
+                        bars[currentBarIdx].startEnding = el.startEnding;
+                        bars[currentBarIdx].endEnding = el.endEnding;
+                    }
                     // Ensure current bar exists before moving to next
                     while (currentBarIdx >= bars.length) {
                         bars.push({ notes: [], rhythm: [] });
@@ -562,24 +571,110 @@ function abcToStrudel(abcText) {
             }
             code += `];\n`;
 
+            // Detect sections based on repeat markers
+            let sections = [];
+            let currentSection = { name: 'intro', start: 0, bars: [] };
+            let sectionCount = 0;
+            
+            for (let i = 0; i < bars.length; i++) {
+                const bar = bars[i];
+                
+                // Check for repeat start (bar_right_repeat or bar_dbl_repeat)
+                if (bar.barType === 'bar_right_repeat' || bar.barType === 'bar_dbl_repeat') {
+                    // End current section before the repeat marker
+                    currentSection.bars.push(i);
+                    currentSection.end = i + 1;
+                    sections.push(currentSection);
+                    
+                    // Start new section after the repeat
+                    sectionCount++;
+                    const sectionName = sectionCount === 1 ? 'main' : `section${sectionCount}`;
+                    currentSection = { name: sectionName, start: i + 1, bars: [] };
+                } else if (bar.barType === 'bar_left_repeat') {
+                    // Start of a repeat section
+                    if (currentSection.bars.length > 0) {
+                        currentSection.end = i;
+                        sections.push(currentSection);
+                        sectionCount++;
+                    }
+                    currentSection = { name: sectionCount === 0 ? 'intro' : 'main', start: i, bars: [] };
+                    currentSection.bars.push(i);
+                } else {
+                    currentSection.bars.push(i);
+                }
+            }
+            
+            // Save final section only if there are bars after the last saved section
+            if (currentSection.bars.length > 0) {
+                currentSection.end = bars.length;
+                // Only add this section if it's actually after the previous section
+                const lastSection = sections[sections.length - 1];
+                if (!lastSection || currentSection.start >= lastSection.end) {
+                    // If we already have intro and main, and this section is shorter than main, call it 'coda'
+                    if (sections.length >= 2) {
+                        const mainSection = sections.find(s => s.name === 'main');
+                        if (mainSection && currentSection.bars.length < mainSection.bars.length) {
+                            currentSection.name = 'coda';
+                        } else {
+                            currentSection.name = 'outro';
+                        }
+                    }
+                    sections.push(currentSection);
+                }
+            }
+            
             // Build sequence of indices referencing bars array
-            const indices = bars.map(b => {
+            const allIndices = bars.map(b => {
                 const k = keyForBar(b);
                 const uk = uniqueBars.findIndex(ub => {
                     const ubKey = ub.notes.join(',') + '|' + ub.rhythm.join(',');
                     return ubKey === k;
                 });
                 return `${barsName}[${uk}]`;
-            }).join(', ');
+            });
             
-            voicePatterns.push(`cat(${indices})`);
+            // Store section info for this voice
+            allVoiceBars[voiceIdx].sections = sections;
+            allVoiceBars[voiceIdx].allIndices = allIndices;
+            allVoiceBars[voiceIdx].barsName = barsName;
+        }
+        
+        // Generate section variables for each voice
+        let hasSections = allVoiceBars.every(v => v.sections && v.sections.length > 1);
+        
+        if (hasSections) {
+            // Create intro_v0, main_v0, intro_v1, main_v1, etc. as arrays
+            code += '\n';
+            for (let voiceIdx = 0; voiceIdx < allVoiceBars.length; voiceIdx++) {
+                const voiceData = allVoiceBars[voiceIdx];
+                const sections = voiceData.sections;
+                const allIndices = voiceData.allIndices;
+                
+                for (const sec of sections) {
+                    const secIndices = sec.bars.map(i => allIndices[i]).join(', ');
+                    code += `const ${sec.name}_v${voiceIdx} = [${secIndices}];\n`;
+                }
+            }
+            
+            // Build voice patterns using spread operator to flatten arrays
+            for (let voiceIdx = 0; voiceIdx < allVoiceBars.length; voiceIdx++) {
+                const sections = allVoiceBars[voiceIdx].sections;
+                const sectionRefs = sections.map(s => `...${s.name}_v${voiceIdx}`).join(', ');
+                voicePatterns.push(`cat(${sectionRefs})`);
+            }
+        } else {
+            // No sections - use simple cat for each voice
+            for (let voiceIdx = 0; voiceIdx < allVoiceBars.length; voiceIdx++) {
+                const allIndices = allVoiceBars[voiceIdx].allIndices;
+                voicePatterns.push(`cat(${allIndices.join(', ')})`);
+            }
         }
         
         // Combine voices with stack() if polyphonic, otherwise single pattern
         if (voicePatterns.length > 1) {
-            code += `$: stack(${voicePatterns.join(', ')})\n  .scale("${scaleName}").s("${instrument}")._pianoroll()\n`;
+            code += `\n$: stack(${voicePatterns.join(', ')})\n  .scale("${scaleName}").s("${instrument}")._pianoroll()\n`;
         } else {
-            const catLine = `cat(${voicePatterns[0]}).scale("${scaleName}").s("${instrument}");`;
+            const catLine = `${voicePatterns[0]}.scale("${scaleName}").s("${instrument}");`;
             if (catLine.length <= 80) {
                 code += catLine + '\n';
             } else {
@@ -587,6 +682,7 @@ function abcToStrudel(abcText) {
             }
         }
 
+        console.debug('Generated Strudel code:', code);
         return code;
     } catch (err) {
         console.error('Error in abcToStrudel:', err);
