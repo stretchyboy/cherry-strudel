@@ -4,214 +4,176 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cherry Strudel</title>
+  <title>Cherry Strudel - Music Notation to Strudel Converters</title>
+  <script src="https://unpkg.com/@strudel/repl@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.5.2/dist/abcjs-basic-min.js"></script>
+  <script defer src="abc2strudel-timing.js"></script>
+
+  
   <link rel="stylesheet" href="style.css">
   <style>
-    .controls {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 15px;
-      align-items: center;
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    .tool-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin: 30px 0;
     }
 
-    .controls select {
-      padding: 6px 10px;
-      font-size: 14px;
-      cursor: pointer;
+    .tool-card {
+      border: 2px solid #3a3a3a;
+      border-radius: 8px;
+      padding: 20px;
+      background: #2a2a2a;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .tool-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .tool-card h2 {
+      margin-top: 0;
+      color: #d35f00;
+    }
+
+    .tool-card p {
+      margin: 10px 0;
+      line-height: 1.6;
+    }
+
+    .tool-card a {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 10px 20px;
+      background: #d35f00;
+      color: white;
+      text-decoration: none;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+
+    .tool-card a:hover {
+      background: #b85000;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+
+    .status.stable {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status.beta {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .intro {
+      max-width: 800px;
+      margin: 0 auto 40px;
+      text-align: center;
+    }
+
+    .intro h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+    }
+
+    .intro p {
+      font-size: 1.1em;
+      line-height: 1.6;
+      color: #b0b0b0;
+    }
+    a {
+      color: #d35f00;
+    }
+    a:hover {
+      color: #ff8533;
     }
   </style>
 </head>
 
 <body>
 
-  <script src="https://unpkg.com/@strudel/repl@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.5.2/dist/abcjs-basic-min.js"></script>
-  <script defer src="abc2strudel-timing.js"></script>
-
-  <h1>ABC → Strudel</h1>
-  <p>Paste a monophonic ABC melody (one voice). Each bar becomes one Strudel cycle.</p>
-
-  <div class="controls">
-    <label for="tune-select">Load from file:</label>
-    <select id="tune-select">
-      <option value="">-- Select a tune --</option>
-    </select>
+  <div class="intro">
+    <h1>🍒 Cherry Strudel</h1>
+    <p>
+      Convert music notation formats to <a href="https://strudel.cc" target="_blank">Strudel</a> patterns.
+      Import melodies from ABC notation or MIDI files and play them in the browser using Strudel's
+      powerful live coding environment.
+    </p>
   </div>
 
-  <div class="row">
-    <textarea id="abc">
-
-X: 25
-T: Jingle Bells
-P: piffero primo c0050
-O: James Pierpont
-%R: march
-F: http://ancients.sudburymuster.org/mus/col/pdf/carolsF.pdf
-Z: 2020 John Chambers <jc:trillian.mit.edu>
-M: 4/4
-L: 1/4
-K: G
-% - - - - - - - - - -
-[|\
-DB AG | D3 D/D/ | DB AG | E4 |\
-Ec BA | F3 F | dd cA | B3 D ||\
-DB AG | D3 D/D/ | DB AG |
-E3 E |\
-Ec BA | dd dd | ed cA | G3 z |[|\
-BB B2 | BB B2 | Bd GA | B4 |\
-cc cc | cB BB/B/ |
-BA AB | A>z d2 ||\
-BB B2 | BB B2 | Bd GA | B4 |\
-cc cc | cB BB/B/ | dd cA | G3 z |]
-%% - - - - - - - - - -
-        </textarea>
-    <button id="convert">Convert to Strudel</button>
-  </div>
-
-  <h2>Strudel Output</h2>
-  <strudel-editor show-controls="true"></strudel-editor>
   
-  <h2>ABC Notation</h2>
-  <div id="abc-controls" style="margin-bottom: 10px;">
-    <button id="abc-play">Play ABC</button>
-    <button id="abc-pause">Pause</button>
-    <button id="abc-stop">Stop</button>
+
+  <div class="tool-grid">
+    
+    <div class="tool-card">
+      <h2>
+        ABC → Strudel
+        <span class="status stable">Stable</span>
+      </h2>
+      <p>
+        Convert ABC notation to Strudel patterns. Perfect for traditional music, folk tunes,
+        and any melody written in ABC format. Includes a library of Christmas carols.
+      </p>
+      <p><strong>Features:</strong></p>
+      <ul>
+        <li>Bar-based rhythm conversion</li>
+        <li>Automatic key signature detection</li>
+        <li>Multi-voice support</li>
+        <li>Playback comparison</li>
+      </ul>
+      <a href="abc2strudel.html">Open ABC Converter →</a>
+    </div>
+
+    <div class="tool-card">
+      <h2>
+        MIDI → Strudel
+        <span class="status beta">Beta</span>
+      </h2>
+      <p>
+        Convert MIDI files to Strudel patterns using exact timing as the source of truth.
+        Automatically splits piano tracks into high/low hands and quantizes rhythms.
+      </p>
+      <p><strong>Features:</strong></p>
+      <ul>
+        <li>Timing-based conversion</li>
+        <li>Automatic pitch range splitting</li>
+        <li>Smart duration quantization</li>
+        <li>MIDI playback for comparison</li>
+      </ul>
+      <a href="midi2strudel.html">Open MIDI Converter →</a>
+    </div>
+
   </div>
-  <div id="paper"></div>
 
-  <script>
-    // Load Christmas_Carols.abc and populate the dropdown
-    fetch('Christmas_Carols.abc')
-      .then(response => response.text())
-      .then(abcText => {
-        // Parse tunes: find X: headers and corresponding T: titles
-        const tunes = [];
-        const lines = abcText.split('\n');
-        let currentX = null;
-        let currentT = null;
-        let tuneStart = 0;
+  <div style="max-width: 800px; margin: 40px auto; padding: 20px; background: #2a2a2a; border-radius: 8px; border: 1px solid #3a3a3a;">
+    <h2>About This Project</h2>
+    <p>
+      Cherry Strudel makes it easy to bring existing musical notation into the Strudel live coding
+      environment. Whether you have ABC files from traditional music archives or MIDI files from
+      a digital audio workstation, these converters help you transform them into editable Strudel
+      patterns.
+    </p>
+    <p>
+      Built with <a href="https://github.com/paulrosen/abcjs" target="_blank">abcjs</a> and
+      <a href="https://github.com/Tonejs/Midi" target="_blank">@tonejs/midi</a>.
+    </p>
+  </div>
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (line.startsWith('X:')) {
-            // if we have a previous tune, save it
-            if (currentX !== null) {
-              tunes.push({
-                x: currentX,
-                title: currentT || `Tune ${currentX}`,
-                startLine: tuneStart,
-                endLine: i
-              });
-            }
-            currentX = line.substring(2).trim();
-            tuneStart = i;
-            currentT = null;
-          } else if (line.startsWith('T:') && currentX !== null) {
-            currentT = line.substring(2).trim();
-          }
-        }
-        // save last tune
-        if (currentX !== null) {
-          tunes.push({
-            x: currentX,
-            title: currentT || `Tune ${currentX}`,
-            startLine: tuneStart,
-            endLine: lines.length
-          });
-        }
-
-        // Populate dropdown
-        const select = document.getElementById('tune-select');
-        tunes.forEach(tune => {
-          const option = document.createElement('option');
-          option.value = tune.startLine + ',' + tune.endLine;
-          option.textContent = `${tune.x}. ${tune.title}`;
-          select.appendChild(option);
-        });
-
-        // Handle dropdown selection
-        select.addEventListener('change', function () {
-          if (!this.value) return;
-          const [startStr, endStr] = this.value.split(',');
-          const start = parseInt(startStr);
-          const end = parseInt(endStr);
-          const tuneText = lines.slice(start, end).join('\n');
-          document.getElementById('abc').value = tuneText;
-        });
-
-        console.log(`Loaded ${tunes.length} tunes from Christmas_Carols.abc`);
-      })
-      .catch(err => console.error('Error loading Christmas_Carols.abc:', err));
-
-    // ABC playback controls
-    let abcMidiBuffer = null;
-
-    document.getElementById('abc-play').addEventListener('click', function() {
-      const abcText = document.getElementById('abc').value;
-      
-      if (!abcText.trim()) {
-        alert('Please enter or load ABC notation first');
-        return;
-      }
-      
-      // If already playing, just resume
-      if (abcMidiBuffer && abcMidiBuffer.getIsRunning && abcMidiBuffer.getIsRunning()) {
-        return; // Already playing
-      }
-      
-      // Initialize audio - following the basic-synth.html example pattern
-      if (ABCJS.synth.supportsAudio()) {
-        // Create audio context (needed for browser audio)
-        window.AudioContext = window.AudioContext ||
-          window.webkitAudioContext ||
-          navigator.mozAudioContext ||
-          navigator.msAudioContext;
-        const audioContext = new AudioContext();
-        
-        audioContext.resume().then(() => {
-          // Render the music notation
-          const visualObj = ABCJS.renderAbc("paper", abcText, {
-            responsive: 'resize'
-          })[0];
-          
-          // Create the synth buffer
-          abcMidiBuffer = new ABCJS.synth.CreateSynth();
-          
-          // Initialize the synth with the visual object
-          return abcMidiBuffer.init({
-            visualObj: visualObj,
-            audioContext: audioContext,
-            millisecondsPerMeasure: visualObj.millisecondsPerMeasure()
-          });
-        }).then((response) => {
-          console.log("ABC audio loaded:", response);
-          // Prime the audio buffer
-          return abcMidiBuffer.prime();
-        }).then((response) => {
-          console.log("ABC audio primed, duration:", response.duration, "seconds");
-          // Start playing
-          abcMidiBuffer.start();
-        }).catch((error) => {
-          console.error('Error setting up ABC playback:', error);
-          alert('Error playing ABC: ' + (error.message || error));
-        });
-      } else {
-        alert('Audio is not supported in this browser');
-      }
-    });
-
-    document.getElementById('abc-pause').addEventListener('click', function() {
-      if (abcMidiBuffer) {
-        abcMidiBuffer.pause();
-      }
-    });
-
-    document.getElementById('abc-stop').addEventListener('click', function() {
-      if (abcMidiBuffer) {
-        abcMidiBuffer.stop();
-      }
-    });
-  </script>
 </body>
 
 </html>
