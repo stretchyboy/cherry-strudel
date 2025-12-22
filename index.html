@@ -26,7 +26,7 @@
 
   <script src="https://unpkg.com/@strudel/repl@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/abcjs@6.5.2/dist/abcjs-basic-min.js"></script>
-  <script src="abc2strudel.js"></script>
+  <script defer src="abc2strudel.js"></script>
 
   <h1>ABC → Strudel</h1>
   <p>Paste a monophonic ABC melody (one voice). Each bar becomes one Strudel cycle.</p>
@@ -68,7 +68,15 @@ cc cc | cB BB/B/ | dd cA | G3 z |]
     <button id="convert">Convert to Strudel</button>
   </div>
 
-  <strudel-editor></strudel-editor>
+  <h2>Strudel Output</h2>
+  <strudel-editor show-controls="true"></strudel-editor>
+  
+  <h2>ABC Notation</h2>
+  <div id="abc-controls" style="margin-bottom: 10px;">
+    <button id="abc-play">Play ABC</button>
+    <button id="abc-pause">Pause</button>
+    <button id="abc-stop">Stop</button>
+  </div>
   <div id="paper"></div>
 
   <script>
@@ -134,6 +142,75 @@ cc cc | cB BB/B/ | dd cA | G3 z |]
         console.log(`Loaded ${tunes.length} tunes from Christmas_Carols.abc`);
       })
       .catch(err => console.error('Error loading Christmas_Carols.abc:', err));
+
+    // ABC playback controls
+    let abcMidiBuffer = null;
+
+    document.getElementById('abc-play').addEventListener('click', function() {
+      const abcText = document.getElementById('abc').value;
+      
+      if (!abcText.trim()) {
+        alert('Please enter or load ABC notation first');
+        return;
+      }
+      
+      // If already playing, just resume
+      if (abcMidiBuffer && abcMidiBuffer.getIsRunning && abcMidiBuffer.getIsRunning()) {
+        return; // Already playing
+      }
+      
+      // Initialize audio - following the basic-synth.html example pattern
+      if (ABCJS.synth.supportsAudio()) {
+        // Create audio context (needed for browser audio)
+        window.AudioContext = window.AudioContext ||
+          window.webkitAudioContext ||
+          navigator.mozAudioContext ||
+          navigator.msAudioContext;
+        const audioContext = new AudioContext();
+        
+        audioContext.resume().then(() => {
+          // Render the music notation
+          const visualObj = ABCJS.renderAbc("paper", abcText, {
+            responsive: 'resize'
+          })[0];
+          
+          // Create the synth buffer
+          abcMidiBuffer = new ABCJS.synth.CreateSynth();
+          
+          // Initialize the synth with the visual object
+          return abcMidiBuffer.init({
+            visualObj: visualObj,
+            audioContext: audioContext,
+            millisecondsPerMeasure: visualObj.millisecondsPerMeasure()
+          });
+        }).then((response) => {
+          console.log("ABC audio loaded:", response);
+          // Prime the audio buffer
+          return abcMidiBuffer.prime();
+        }).then((response) => {
+          console.log("ABC audio primed, duration:", response.duration, "seconds");
+          // Start playing
+          abcMidiBuffer.start();
+        }).catch((error) => {
+          console.error('Error setting up ABC playback:', error);
+          alert('Error playing ABC: ' + (error.message || error));
+        });
+      } else {
+        alert('Audio is not supported in this browser');
+      }
+    });
+
+    document.getElementById('abc-pause').addEventListener('click', function() {
+      if (abcMidiBuffer) {
+        abcMidiBuffer.pause();
+      }
+    });
+
+    document.getElementById('abc-stop').addEventListener('click', function() {
+      if (abcMidiBuffer) {
+        abcMidiBuffer.stop();
+      }
+    });
   </script>
 </body>
 
