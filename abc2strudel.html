@@ -117,12 +117,24 @@
 
   <h1>ABC → Strudel</h1>
   <p>Paste a ABC melody. Each bar becomes one Strudel cycle.</p>
-<p>The drop down contains Christmas Carols, but lots of ABC tunes will work.</p>
+  <p>The drop down contains Christmas Carols, but lots of ABC tunes will work.</p>
+  
   <div class="controls">
-    <label for="tune-select">Load from file:</label>
+    <label for="tune-select">Load from library:</label>
     <select id="tune-select">
       <option value="">-- Select a tune --</option>
     </select>
+  </div>
+
+  <div class="controls">
+    <label for="file-upload">Upload ABC file:</label>
+    <input type="file" id="file-upload" accept=".abc,.txt" />
+  </div>
+
+  <div class="controls">
+    <label for="url-input">Or load from URL:</label>
+    <input type="text" id="url-input" placeholder="https://example.com/tune.abc" style="flex: 1; padding: 6px 10px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #3a3a3a; border-radius: 4px;" />
+    <button id="load-url">Load URL</button>
   </div>
 
   <div class="row">
@@ -231,6 +243,57 @@ cc cc | cB BB/B/ | dd cA | G3 z |]
         window.allLines = lines;
       })
       .catch(err => console.error('Failed to load Christmas_Carols.abc:', err));
+
+    // Handle file upload
+    document.getElementById('file-upload').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        document.getElementById('abc').value = event.target.result;
+      };
+      reader.readAsText(file);
+    });
+
+    // Handle URL loading
+    document.getElementById('load-url').addEventListener('click', function() {
+      const url = document.getElementById('url-input').value.trim();
+      if (!url) {
+        alert('Please enter a URL');
+        return;
+      }
+      
+      // Try direct fetch first
+      fetch(url)
+        .then(response => {
+          if (!response.ok) throw new Error('Failed to load URL');
+          return response.text();
+        })
+        .then(abcText => {
+          document.getElementById('abc').value = abcText;
+          document.getElementById('url-input').value = '';
+        })
+        .catch(err => {
+          // If CORS error, try with proxy
+          console.log('Direct fetch failed, trying CORS proxy...', err);
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+          
+          fetch(proxyUrl)
+            .then(response => {
+              if (!response.ok) throw new Error('Failed to load URL through proxy');
+              return response.text();
+            })
+            .then(abcText => {
+              document.getElementById('abc').value = abcText;
+              document.getElementById('url-input').value = '';
+            })
+            .catch(proxyErr => {
+              console.error('Error loading URL:', proxyErr);
+              alert('Failed to load URL. The server may not allow cross-origin requests. Try downloading the file and using the file upload option instead.');
+            });
+        });
+    });
 
     // Initialize ABCJS with playback controls
     if (typeof ABCJS !== 'undefined') {

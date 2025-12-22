@@ -423,32 +423,68 @@ async function midiToStrudel(arrayBuffer) {
 // Wire up the UI
 document.addEventListener('DOMContentLoaded', function() {
     const fileUpload = document.getElementById('file-upload');
+    const urlInput = document.getElementById('url-input');
+    const loadUrlBtn = document.getElementById('load-url');
     const convertBtn = document.getElementById('convert');
     const playBtn = document.getElementById('play-midi');
     const stopBtn = document.getElementById('stop-midi');
+
+    // Process MIDI file
+    async function processMidiFile(arrayBuffer) {
+        try {
+            const strudelCode = await midiToStrudel(arrayBuffer);
+
+            // Update Strudel editor
+            const editor = document.querySelector('strudel-editor');
+            if (editor) {
+                editor.setAttribute('code', strudelCode);
+                if (editor.requestUpdate) {
+                    editor.requestUpdate();
+                }
+            }
+        } catch (err) {
+            console.error('Conversion error:', err);
+            alert(`Error: ${err.message}`);
+        }
+    }
 
     // Handle file upload
     fileUpload.addEventListener('change', async function(e) {
         const file = e.target.files[0];
         if (file) {
             const arrayBuffer = await file.arrayBuffer();
-            
-            // Convert immediately
-            try {
-                const strudelCode = await midiToStrudel(arrayBuffer);
+            await processMidiFile(arrayBuffer);
+        }
+    });
 
-                // Update Strudel editor
-                const editor = document.querySelector('strudel-editor');
-                if (editor) {
-                    editor.setAttribute('code', strudelCode);
-                    if (editor.requestUpdate) {
-                        editor.requestUpdate();
-                    }
-                }
+    // Handle URL loading
+    loadUrlBtn.addEventListener('click', async function() {
+        const url = urlInput.value.trim();
+        if (!url) {
+            alert('Please enter a URL');
+            return;
+        }
+        
+        try {
+            // Try direct fetch first
+            let response;
+            try {
+                response = await fetch(url);
+                if (!response.ok) throw new Error('Failed to load URL');
             } catch (err) {
-                console.error('Conversion error:', err);
-                alert(`Error: ${err.message}`);
+                // If CORS error, try with proxy
+                console.log('Direct fetch failed, trying CORS proxy...', err);
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+                response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error('Failed to load URL through proxy');
             }
+            
+            const arrayBuffer = await response.arrayBuffer();
+            await processMidiFile(arrayBuffer);
+            urlInput.value = '';
+        } catch (err) {
+            console.error('Error loading URL:', err);
+            alert('Failed to load URL. The server may not allow cross-origin requests. Try downloading the file and using the file upload option instead.');
         }
     });
 
