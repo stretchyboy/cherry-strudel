@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIDI → Strudel</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    h1 {
+      color: #4fc3f7;
+    }
+    .controls {
+      margin-bottom: 20px;
+      background: #2a2a2a;
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid #3a3a3a;
+    }
+    button {
+      background: #4fc3f7;
+      color: #1a1a1a;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      margin-right: 10px;
+    }
+    button:hover {
+      background: #29b6f6;
+    }
+    input[type="file"] {
+      margin-bottom: 10px;
+    }
+    .info {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 4px;
+      margin-top: 20px;
+      border-left: 4px solid #4fc3f7;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 600;
+      color: #4fc3f7;
+    }
+    strudel-editor {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>MIDI → Strudel</h1>
+  <p>Upload a MIDI file. Each track will be converted using timing information.</p>
+
+  <div class="controls">
+    <label for="file-upload">Load MIDI file:</label>
+    <input type="file" id="file-upload" accept=".mid,.midi" />
+    <button id="convert">Convert to Strudel</button>
+    <button id="play-midi">Play MIDI</button>
+    <button id="stop-midi">Stop</button>
+  </div>
+
+  <div class="info">
+    <strong>Note:</strong> This converter extracts timing information from MIDI files and converts to Strudel patterns. 
+    Multiple tracks are combined with stack(). The timing is the source of truth - what you hear in the MIDI file 
+    is what the converter will produce.
+  </div>
+
+  <div style="background: #2a2a2a; padding: 20px; border-radius: 8px; border: 1px solid #3a3a3a; margin-top: 20px;">
+    <label>Strudel Player:</label>
+    <strudel-editor show-controls></strudel-editor>
+  </div>
+
+  <script src="https://unpkg.com/@strudel/repl@latest"></script>
+  <script src="https://unpkg.com/@tonejs/midi@2.0.28/build/Midi.js"></script>
+  <script src="https://unpkg.com/tone@14.8.49/build/Tone.js"></script>
+  <script defer src="midi2strudel.js"></script>
+</body>
+</html>
